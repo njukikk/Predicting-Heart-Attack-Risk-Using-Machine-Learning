@@ -1,0 +1,517 @@
+---
+title: "PREDICTING IF A PERSON IS PRONE TO A HEART ATTACK"
+subtitle: "STA 567 Final Project"
+author: "Kelvin Njuki"
+date: "Date: May 6th, 2021"
+output:
+  pdf_document: default
+  html_document: default
+  
+header-includes:
+    - \usepackage{setspace}\doublespacing
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load the necessary packages for this work
+library(tidyverse)
+library(patchwork)
+library(gridExtra)
+library(caret)
+library(corrplot)
+library(knitr)
+library(MASS)
+library(tree)
+library(randomForest)
+library(gbm)
+
+# Set seed as the assignment due date
+set.seed(05062021)
+```
+
+# Introduction
+
+Heart attack is among the cardiovascular diseases which are part of the chronic diseases. It occurs when there is a blockage in the flow of blood to the heart leading to insufficient oxygen in some parts of the human heart. This blockage mostly happens due to plaque raptures. If a quicker action to unblock the arteries is not taken, the section with the blockage starts to die. This may cause death to the affected person.
+
+The following factors are commonly associated with increased risk of a heart attack, age of a person, high cholesterol levels in the body, high blood pressure, obesity, among others. It is advisable to go for a check-up often or engage in exercise to improve the health of your heart. If a heart attack is detected at an early stage, the affected individual can be treated. Therefore, this project aims at predicting the chances of getting a heart attack based on several factors. 
+
+Different models were built, and the best model for predicting the chances of getting a heart attack was selected based on the accuracy metric. The project used heart attack data that was extracted from kaggle.com URL: https://www.kaggle.com/rashikrahmanpritom/heart-attack-analysis-prediction-dataset. The data contains 14 variables (13 predictors and one response variable (`output`)). The description of each variable is outlined below.
+
+* `age` - Age of the patient in years
+* `sex` - Sex of the patient (1 = male; 0 = female)
+* `cp` - Chest pain type ~ 0 = Typical Angina, 1 = Atypical Angina, 2 = Non-anginal Pain, 3 = Asymptomatic
+* `trtbps` - Resting blood pressure (in mm Hg on admission to the hospital)
+* `chol` - Cholestoral in mg/dl fetched via BMI sensor
+* `fbs` - fasting blood sugar > 120 mg/dl) ~ 1 = True, 0 = False
+* `restecg` - Resting electrocardiographic results ~ 0 = Normal, 1 = having ST-T, 2 = hypertrophy
+* `thalachh` - Maximum heart rate achieved
+* `exng` - Exercise induced angina ~ 1 = Yes, 0 = No
+* `oldpeak` - ST depression induced by exercise relative to rest
+* `slp` - The slope of the peak exercise ST segment (0 = upsloping; 1 = flat; 2 = downsloping)
+* `caa` - Number of major vessels (0-3) colored by flourosopy
+* `thall` - Thallium Stress Test result ~ 0 = unknown; 1 = fixed defect; 2 = normal; 3 = reversible defect
+* `output` - Target variable 0(less chance of heart attack) and 1(more chance of heart attack)
+
+The rest of the project is organized as follows, Exploratory Data Analysis, Model Building, and Conclusion.
+
+
+```{r, echo=F}
+### Data Processing
+
+# Read in the data set
+heartattack <- read.csv("heartattack.csv", header = TRUE)
+
+# Change the categorical variables to factors and add labels
+heartattack <- heartattack %>%
+  mutate(output = factor(output,levels = c(0,1), labels = c("Less", "High"))) %>%
+  mutate(sex = factor(sex, levels = c(0,1), labels = c("Female", "Male"))) %>%
+  mutate(cp = factor(cp, levels = c(0,1,2,3), 
+                     labels = c("T", "A","N-A", "Asy..."))) %>%
+  mutate(fbs = factor(fbs, levels = c(0,1), labels = c("False", "True"))) %>%
+  mutate(restecg = factor(restecg, levels = c(0,1,2), 
+                          labels = c("Normal", "ST-T",
+                                 "VH"))) %>%
+  mutate(exng = factor(exng, levels = c(0,1), labels = c("No", "Yes"))) %>%
+    mutate(thall = factor(thall, levels = c(0,1,2,3), 
+                     labels = c("U", "F","N", "R"))) %>%
+  mutate(slp = as.factor(slp)) %>%
+  mutate(caa = as.factor(caa))
+```
+
+# Exploratory Data Analysis
+
+Exploratory data analysis was necessary to gain insight into the data. The data has 9 categorical variables (including the response variable) and five quantitative variables. To assess the association between categorical predictors and the response, grouped bar plots were generated for each categorical predictor and the response variable. Comparative boxplots were constructed to compare the distribution of quantitative variables across the levels of the response variable.
+
+\newpage
+
+**i.** _Exploring the association between each categorical variables and the response variable._
+
+```{r,  warning=F, echo=F}
+# Histogram of the output variable
+p1 <- ggplot(heartattack, aes(x = output)) + 
+  geom_histogram(stat = "count", fill="orange") + 
+  geom_text(aes(label=paste0(round((..count../sum(..count..))*100,1),'%'),
+                vjust=0.5), stat='count', size = 2, position = position_dodge(0.9)) +
+  labs(x="Prevalence", y="Count") +
+  theme_bw()
+
+
+# Grouped bar plot of patient's sex and the chances of getting heart attack
+p2 <- ggplot(heartattack, aes(x=sex, fill=output))+
+  geom_bar(stat="count",position ="dodge") +
+  geom_text(aes(label=paste0(round((..count../sum(..count..))*100,1),'%'),
+                vjust=0.5), stat='count', size = 2, position = position_dodge(0.9)) +
+  labs(x="Sex", y="Count", fill="Prevalence") + 
+  theme_bw() +
+  theme(legend.position = c(0.18,0.77),
+        legend.title = element_text(size=5, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.key = element_rect(fill = "white", colour = "black"),
+        legend.key.size = unit(0.2,'cm'))
+
+
+# Grouped bar plot of chest pain type and the chances of getting heart attack
+p3 <- ggplot(heartattack, aes(x=cp, fill=output))+
+  geom_bar(stat="count",position ="dodge") +
+  geom_text(aes(label=paste0(round((..count../sum(..count..))*100,1),'%'),
+                vjust=0.5), stat='count', size = 2, position = position_dodge(0.9)) +
+  labs(x="Chest Pain Type", y="Count",fill="Prevalence") +
+  theme_bw() +
+  theme(legend.position = c(0.87,0.77),
+        legend.title = element_text(size=5, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.key = element_rect(fill = "white", colour = "black"),
+        legend.key.size = unit(0.2,'cm'))
+
+
+# Grouped bar plot of if fasting blood sugar is greater than 120 and the chances of getting heart attack
+p4 <- ggplot(heartattack, aes(x=fbs, fill=output))+
+  geom_bar(stat="count",position ="dodge") +
+  geom_text(aes(label=paste0(round((..count../sum(..count..))*100,1),'%'),
+                vjust=0.5), stat='count', size = 2, position = position_dodge(0.9)) +
+  labs(x="FBS>120mg/dl", y="Count",fill="Prevalence") +
+  theme_bw() +
+  theme(legend.position = c(0.8,0.75),
+        legend.title = element_text(size=5, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.key = element_rect(fill = "white", colour = "black"),
+        legend.key.size = unit(0.2,'cm'))
+
+
+# Grouped bar plot of resting electrocardiographic results and the chances of getting heart attack
+p5 <- ggplot(heartattack, aes(x=restecg, fill=output))+
+  geom_bar(stat="count",position ="dodge") +
+  geom_text(aes(label=paste0(round((..count../sum(..count..))*100,1),'%'),
+                vjust=0.5), stat='count', size = 2, position = position_dodge(0.9)) +
+  labs(x="Electrocardiographic 'Rslts'", y="Count",fill="Prevalence") +
+  theme_bw() +
+  theme(legend.position = c(0.82,0.75),
+        legend.title = element_text(size=5, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.key = element_rect(fill = "white", colour = "black"),
+        legend.key.size = unit(0.2,'cm'))
+
+# Grouped bar plot of exercise induced angina and the chances of getting heart attack
+p6 <- ggplot(heartattack, aes(x=exng, fill=output))+
+  geom_bar(stat="count",position ="dodge") +
+  geom_text(aes(label=paste0(round((..count../sum(..count..))*100,1),'%'),
+                vjust=0.5), stat='count', size = 2, position = position_dodge(0.9)) +
+  labs(x="Exercise Induced Angina", y="Count",fill="Prevalence") +
+  theme_bw() +
+  theme(legend.position = c(0.8,0.77),
+        legend.title = element_text(size=5, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.key = element_rect(fill = "white", colour = "black"),
+        legend.key.size = unit(0.2,'cm'))
+
+
+# Grouped bar plot of peak exercise slope and the chances of getting heart attack
+p7 <- ggplot(heartattack, aes(x=slp, fill=output))+
+  geom_bar(stat="count",position ="dodge") +
+  geom_text(aes(label=paste0(round((..count../sum(..count..))*100,1),'%'),
+                vjust=0.5), stat='count', size = 2, position = position_dodge(0.9)) +
+  labs(x="Slope", y="Count",fill="Prevalence") +
+  theme_bw() +
+  theme(legend.position = c(0.2,0.75),
+        legend.title = element_text(size=5, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.key = element_rect(fill = "white", colour = "black"),
+        legend.key.size = unit(0.2,'cm'))
+
+# Grouped bar plot of peak exercise slope and the chances of getting heart attack
+p8 <- ggplot(heartattack, aes(x=caa, fill=output))+
+  geom_bar(stat="count",position ="dodge") +
+  geom_text(aes(label=paste0(round((..count../sum(..count..))*100,1),'%'),
+                vjust=0.5), stat='count', size = 2, position = position_dodge(0.9)) +
+  labs(x="# of Major Vessels", y="Count",fill="Prevalence") +
+  theme_bw() +
+  theme(legend.position = c(0.8,0.75),
+        legend.title = element_text(size=5, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.key = element_rect(fill = "white", colour = "black"),
+        legend.key.size = unit(0.2,'cm'))
+
+
+# Grouped bar plot of thallium stress and the chances of getting heart attack
+p9 <- ggplot(heartattack, aes(x=thall, fill=output))+
+  geom_bar(stat="count",position ="dodge") +
+  geom_text(aes(label=paste0(round((..count../sum(..count..))*100,1),'%'),
+                vjust=0.5), stat='count', size = 2, position = position_dodge(0.9)) +
+  labs(x="Thallium Stress", y="Count",fill="Prevalence") + 
+  theme_bw() +
+  theme(legend.position = c(0.2,0.75),
+        legend.title = element_text(size=5, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.key = element_rect(fill = "white", colour = "black"),
+        legend.key.size = unit(0.2,'cm'))
+
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,p8,p9)
+```
+
+
+Overall, the data suggest that people have a high prevalence of getting a heart attack. Males are more likely to get a heart attack than females. Patients with non-angina chest pain occupy the largest proportion of patients with a high chance of getting a heart attack. Those with typical chest pain are most unlikely to get a heart attack. Most of the patients with fasting blood sugar that is less than 120 mg/dl are unlikely to get a heart attack. Among the patients with a high chance of getting a heart attack, the majority have ST-T resting electrocardiographic results. People with a downsloping slope of the peak exercise ST-segment have the highest chance of an attack. Among those who have a high prevalence of an attack, patients with zero major vessels are the most. Thallium stress of 2 implies a patient has a high chance of a heart attack. Generally, sex, chest pain type, exercise-induced angina, slope, number of major vessels, and thallium stress have a high association with the prevalence of an attack.
+
+\newpage
+
+**ii.** _Comparing the distribution of the quantitative variables from the two levels of response variable._
+
+```{r, warning=F, echo=F}
+# Select only the quantitative variables and the response
+heartattack2 <- heartattack %>%
+  dplyr::select(output, age, trtbps, chol, thalachh, oldpeak)
+
+# Comparative boxplot of age and heart attack
+bp1 <- ggplot(heartattack2) + 
+  geom_boxplot(aes(x=output, y=age), fill="orange") + 
+  labs(x="Prevalence of Heart Attack", y="Age") +
+  theme_bw()
+
+
+# Comparative boxplot of resting blood pressure and heart attack
+bp2 <- ggplot(heartattack2) + 
+  geom_boxplot(aes(x=output, y=trtbps), fill="orange") + 
+  labs(x="Prevalence of Heart Attack", y="Blood Pressure") +
+  theme_bw()
+
+
+# Comparative boxplot of serum cholestoral and heart attack
+bp3 <- ggplot(heartattack2) + 
+  geom_boxplot(aes(x=output, y=chol), fill="orange") + 
+  labs(x="Prevalence of Heart Attack", y="Cholestoral") +
+  theme_bw()
+
+
+# Comparative boxplot of maximum heart rate achieved and heart attack
+bp4 <- ggplot(heartattack2) + 
+  geom_boxplot(aes(x=output, y=thalachh), fill="orange") + 
+  labs(x="Prevalence of Heart Attack", y="Max Heart Rate") +
+  theme_bw()
+
+
+# Comparative boxplot of ST depression induced by exercise relative to rest and heart attack
+bp5 <- ggplot(heartattack2) + 
+  geom_boxplot(aes(x=output, y=oldpeak), fill="orange") + 
+  labs(x="Prevalence of Heart Attack", y="ST Depression") +
+  theme_bw()
+
+(bp1+bp2+bp3)/(bp4+bp5)
+```
+
+It is surprising that, on average, patients with a high chance of heart attack have a median age of 52 years, while those with a low chance have a median age of 58 years. Intuitively, it is expected the older you are, the higher the chance of an attack, but that is not the case here. Similarly, people with high cholesterol are expected to be prone to a heart attack, but the data shows no significant difference. High blood pressure is one of the factors that can cause a heart attack. It is noted from the plots that the median blood pressure is the same for people with a low and high chance of a heart attack. There is a high likelihood of getting a heart attack if your maximum heart rate is high. Overall, age, maximum heart rate, and ST depression are most likely to influence the chances of getting a heart attack.
+
+From the $(i)$ and $(ii)$ above, we can see sex, chest pain type, exercise-induced angina, slope, number of major vessels, thallium stress, age, maximum heart rate, and ST-depression are highly influence the prevalence of a heart attack.
+
+
+# Model Building
+
+Different types of models were fitted in search of the best model for predicting a heart attack based on all predictors and a reduced number of predictors. These models include K-Nearest Neighbors, logistic regression, partial least squares, regression trees (regression trees, boosting, bagging, and random forests), and support vector machines (support vector classifier and support vector machine with polynomial and radial kernels). All the models were evaluated using a 10-folds cross-validation approach. For models with tuning parameters, the appropriate range was arrived at after fitting the model multiple times. All the models fitted were compared by their prediction accuracy to choose the best model. The comparison is shown in the table below.
+
+
+
+```{r, echo=F}
+### Model Type 1: K-Nearest Neighbors
+
+# Fit a KNN model
+knn_hrtattack_mod <- train(output ~ .,
+                           data = heartattack,
+                           method = "knn",
+                           trControl=trainControl(method = "cv",10),
+                           tuneGrid = data.frame(k=seq(8,13,1)),
+                           preProcess=c("center","scale"))
+
+#knn_hrtattack_mod
+
+# Chosen number of nearest neighbors
+best_k <- knn_hrtattack_mod$bestTune$k
+
+# Extract the model accuracy
+knn_mod_acc <- round(max(knn_hrtattack_mod$results$Accuracy)*100,2)
+
+
+```
+
+
+```{r, echo=F}
+### Model Type 2: Logistic Regression
+
+# Logistic model
+log_hrtattack_mod <- train(output ~ .,
+                            data = heartattack,
+                            method = "glm",
+                            family = binomial(link = "logit"),
+                            trControl=trainControl(method = "cv",10),
+                            preProcess=c("center","scale"))
+#log_hrtattack_mod
+
+# Extract the model accuracy
+log_mod_acc <- round(max(log_hrtattack_mod$results$Accuracy)*100,2)
+```
+
+
+```{r, echo=F}
+### Model Type 3: Partial Least Squares Regression
+
+# Fitting PLS model
+pls_hrtattack_mod <- train(output ~ .,
+                           data = heartattack,
+                           method = "pls",
+                           preProcess = c("center","scale"),
+                           trControl = trainControl(method="cv",10),
+                           tuneGrid=data.frame(ncomp=1:13))
+#pls_hrtattack_mod
+
+# Extracting accuracy of the best model
+pls_mod_acc <- round(max(pls_hrtattack_mod$results$Accuracy)*100,2)
+
+# Extracting the number of components selected
+no_of_comps <- pls_hrtattack_mod$finalModel$ncomp
+```
+
+
+```{r, echo=F}
+### Model Type 4: Regression Trees (Regression Tree, Bagging, Boosting and Random Forest models)
+
+# Fit a regression tree model
+hrtattack_regtree <- train(output ~ .,
+                           data=heartattack,
+                           method="rpart",
+                           trControl=trainControl("cv",10),
+                           tuneGrid=data.frame(cp=seq(0.03, 0.04, by=0.001)))
+#hrtattack_regtree
+
+# Plot the tree with text overlay
+# plot(hrtattack_regtree$finalModel, margin=0.015)
+# text(hrtattack_regtree$finalModel, cex=0.75, digits=2)
+
+
+#####################################################################################
+# Fit a bagging model
+hrtattack_bag_mod <- train(output ~ .,
+                           data = heartattack,
+                           method="rf",
+                           trControl=trainControl("cv", 10),
+                           tuneGrid=data.frame(mtry=13),
+                           ntree=100)
+#hrtattack_bag_mod
+
+# Variable importance
+# varImp(hrtattack_bag_mod, scale=FALSE)
+# plot(varImp(hrtattack_bag_mod, scale=FALSE))
+
+
+#######################################################################################
+# Fit a boosting model
+hrtattack_boost_mod <- train(output ~ .,
+                             data = heartattack,
+                             method="gbm",
+                             trControl=trainControl("cv", 10),
+                             tuneGrid=expand.grid(n.trees=seq(100, 150, by=5),
+                                                  interaction.depth=1:4,
+                                                  shrinkage=0.1,
+                                                  n.minobsinnode=10),
+                             verbose=F)
+#hrtattack_boost_mod
+
+
+#######################################################################################
+# Fit a random forest model
+hrtattack_rf_mod <- train(output ~ .,
+                          data = heartattack,
+                          method="rf",
+                          trControl=trainControl("cv", 10),
+                          tuneGrid=expand.grid(mtry=1:13),
+                          verbose=F)
+#hrtattack_rf_mod
+
+#######################################################################################
+```
+
+
+```{r, echo=F}
+### Model Type 5: Support Vector Machines (SVC, SVM with polynomial and radial kernel)
+
+# Fit support vector classifier
+hrtattack_svc_mod <- train(output ~ .,
+                           data = heartattack,
+                           method="svmLinear",
+                           trControl=trainControl("cv", 10),
+                           tuneGrid=data.frame(C=seq(0.01,0.5,0.01)))
+#hrtattack_svc_mod
+
+
+########################################################################
+# Fit support vector machine model
+hrtattack_svmP_mod <- train(output ~ .,
+                            data=heartattack,
+                            method="svmPoly",
+                            trControl=trainControl("cv", 10),
+                            tuneGrid=expand.grid(C=seq(0.005,0.015,0.001),
+                                                 degree=2:4,
+                                                 scale=1))
+#hrtattack_svmP_mod
+
+
+########################################################################
+# SVM: Radial
+hrtattack_svmR_mod <- train(output ~ .,
+                            data=heartattack,
+                            method="svmRadial",
+                            trControl=trainControl("cv", 10),
+                            tuneGrid=expand.grid(C=seq(2,5,0.1),
+                                                 sigma=seq(0.015,0.025,0.001)))
+#hrtattack_svmR_mod
+```
+
+
+
+```{r, echo=F}
+#### Model Comparison
+
+# Compare the six types of models
+comparison <- summary(resamples(list(KNN=knn_hrtattack_mod,
+                                     Logistic=log_hrtattack_mod,
+                                     PLSR=pls_hrtattack_mod,
+                                     RegTree=hrtattack_regtree,
+                                     Bagging=hrtattack_bag_mod,
+                                     Boosting=hrtattack_boost_mod,
+                                     RandomForest=hrtattack_rf_mod,
+                                     SVC=hrtattack_svc_mod,
+                                     svmP=hrtattack_svmP_mod,
+                                     svmR=hrtattack_svmR_mod)))
+# Overall comparison of the models
+comparison_accs <- data.frame(Model=comparison$models,
+                        Accuracy=round(comparison$statistics$Accuracy[,4]*100,2))
+rownames(comparison_accs) <- NULL
+kable(comparison_accs, caption = "Comparing the models by their accuracy")
+
+# The accuracy of the overall best model
+overall_best_mod_acc <- max(comparison_accs$Accuracy)
+
+# The overall model name
+overall_best_mod_name <- comparison_accs$Model[which.max(comparison_accs$Accuracy)]
+```
+
+# Conclusion
+
+The results suggest that the partial least squares regression model is the best in predicting the chances of a heart attack in a patient. The model has an accuracy of `r overall_best_mod_acc`$\%$ and `r no_of_comps` components. 
+Based on the exploratory data analysis, 10 predictors showed a high association with the response variable. The ten predictors were used to build a reduced partial least squares regression model. This model was compared with the full model reported above.
+
+
+```{r, echo=F}
+# Fitting a reduced PLS model
+pls_hrtattack_mod2 <- train(output ~ age + sex + cp + exng + thall + slp + age + caa + thalachh + oldpeak,
+                           data = heartattack,
+                           method = "pls",
+                           preProcess = c("center","scale"),
+                           trControl = trainControl(method="cv",10),
+                           tuneGrid=data.frame(ncomp=1:10))
+#pls_hrtattack_mod2
+
+# Extracting accuracy of the best model
+pls_mod2_acc <- round(max(pls_hrtattack_mod2$results$Accuracy)*100,2)
+
+
+# Compare the three PLS models
+pls_comparison <- summary(resamples(list(FullPLS=pls_hrtattack_mod,
+                                     ReducedPLS=pls_hrtattack_mod2)))
+# Comparison of the pls models accuracy
+pls_comparison_accs <- data.frame(Model=pls_comparison$models,
+                        Accuracy=round(pls_comparison$statistics$Accuracy[,4]*100,2))
+rownames(pls_comparison_accs) <- NULL
+kable(pls_comparison_accs, caption = "Comparing full and reduced PLS models by their accuracy")
+
+# The accuracy of the best pls model
+best_pls_mod_acc <- max(pls_comparison_accs$Accuracy)
+
+# The best pls model name
+best_pls_mod_name <- pls_comparison_accs$Model[which.max(pls_comparison_accs$Accuracy)]
+```
+
+The partial least squares regression model still emerges as the best model compared to a PLS model with 10 predictors. Therefore, we conclude it is the best in predicting the prevalence of getting a heart attack. The prediction accuracy is `r best_pls_mod_acc`$\%$ with `r no_of_comps` components in the model.  Its confusion matrix is displayed below.  Its confusion matrix is displayed below, which shows 0 (less chance) are more misclassified compared to 1 (high chance).
+
+```{r, echo=F}
+# PLS model confusion matrix
+pls_predict <- predict(pls_hrtattack_mod, heartattack)
+pls_conf_mat <- confusionMatrix(pls_predict, heartattack$output)
+kable(pls_conf_mat$table, caption = "Confusion matrix from a PLS model", format = "latex")
+```
+
+
+## References
+
+- James, G., Witten, D., Hastie, T., & Tibshirani, R. (2013). An introduction to statistical learning (Vol. 112, p. 18). New York: springer.
+
+- https://www.kaggle.com/rashikrahmanpritom/heart-attack-analysis-prediction-dataset
+
+- R Core Team (2021). R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna, Austria. URL https://www.R-project.org/.
+
+- Class Notes, Homework and In-class Assignments.
+
+
+
+
+
+
+
+
+
